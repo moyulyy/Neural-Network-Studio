@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
@@ -16,7 +18,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ...core.model import ACTIVATION_LABELS, INITIALIZERS, MAX_HIDDEN_LAYERS
+from ...core.model import (
+    ACTIVATION_LABELS,
+    INITIALIZERS,
+    MAX_HIDDEN_LAYERS,
+    estimate_model_size,
+)
 from ...core.trainer import primary_metric_label
 from ...state import AppState
 from ..theme import theme
@@ -125,7 +132,7 @@ class ModelPage(QWidget):
         left.addWidget(layers_card)
 
         # 网络参数
-        params_card = Card(padding=18, spacing=14)
+        params_card = Card(padding=16, spacing=10)
         params_card.add(CardHeader("网络参数", "影响模型的表达能力和训练稳定性"))
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
@@ -177,11 +184,11 @@ class ModelPage(QWidget):
         right.addWidget(params_card)
 
         # 结构信息
-        info_card = Card(padding=18, spacing=12)
+        info_card = Card(padding=16, spacing=8)
         info_card.add(CardHeader("结构摘要", "训练开始前确认维度与参数规模", HelpButton("structure")))
         info_grid = QGridLayout()
         info_grid.setHorizontalSpacing(12)
-        info_grid.setVerticalSpacing(9)
+        info_grid.setVerticalSpacing(7)
         self.info_labels: dict[str, QLabel] = {}
         rows = [
             ("input", "输入维度"),
@@ -203,6 +210,35 @@ class ModelPage(QWidget):
         self.output_hint.setWordWrap(True)
         info_card.add(self.output_hint)
         right.addWidget(info_card)
+
+        # 模型尺寸估算
+        size_card = Card(padding=16, spacing=6)
+        size_card.add(
+            CardHeader("模型尺寸估算", "权重、存储与显存占用", HelpButton("model_size"))
+        )
+        size_grid = QGridLayout()
+        size_grid.setHorizontalSpacing(12)
+        size_grid.setVerticalSpacing(4)
+        self.size_labels: dict[str, QLabel] = {}
+        size_rows = [
+            ("weights", "权重元素（不含偏置）"),
+            ("params", "参数总数（含偏置）"),
+            ("storage", "模型存储"),
+            ("infer", "推理显存"),
+            ("train", "训练显存（张量估算）"),
+        ]
+        for index, (key, title) in enumerate(size_rows):
+            size_grid.addWidget(label(title, "muted"), index, 0)
+            value = label("—", "card-title")
+            value.setWordWrap(True)
+            size_grid.addWidget(value, index, 1)
+            self.size_labels[key] = value
+        size_grid.setColumnStretch(1, 1)
+        size_card.add_layout(size_grid)
+        self.size_hint = label("选择数据后估算模型尺寸。", "tiny")
+        self.size_hint.setWordWrap(True)
+        size_card.add(self.size_hint)
+        right.addWidget(size_card)
         right.addStretch(1)
 
         actions = QHBoxLayout()
@@ -223,6 +259,13 @@ class ModelPage(QWidget):
         has_data = self.state.frame is not None
         input_dim = prepared.input_dim if prepared else (config.input_dim if has_data else 0)
         output_dim = prepared.output_dim if prepared else (config.output_dim if has_data else 0)
+        size_config = replace(
+            config,
+            input_dim=max(int(input_dim), 1),
+            hidden_layers=list(config.hidden_layers),
+            output_dim=max(int(output_dim), 1),
+        )
+        size_stats = estimate_model_size(size_config)
 
         self._syncing = True
         try:
@@ -267,7 +310,7 @@ class ModelPage(QWidget):
             self.info_labels["hidden"].setText(
                 " · ".join(str(x) for x in config.hidden_layers)
             )
-            parameters = self._parameter_count(input_dim, config.hidden_layers, output_dim, config.batch_norm)
+            parameters = size_stats.parameter_count
             self.info_labels["params"].setText(_format_params(parameters))
             self.param_pill.setText(f"{_format_params(parameters)} 参数")
             self.param_pill.set_tone("accent")
@@ -281,9 +324,7 @@ class ModelPage(QWidget):
             self.info_labels["input"].setText("—")
             self.info_labels["output"].setText("—")
             self.info_labels["hidden"].setText(" · ".join(str(x) for x in config.hidden_layers))
-            parameters = self._parameter_count(
-                max(input_dim, 1), config.hidden_layers, max(output_dim, 1), config.batch_norm
-            )
+            parameters = size_stats.parameter_count
             self.info_labels["params"].setText(_format_params(parameters) if has_data else "—")
             self.param_pill.setText(f"{_format_params(parameters)} 参数" if has_data else "0 参数")
             self.param_pill.set_tone("gray")
@@ -301,18 +342,47 @@ class ModelPage(QWidget):
             self.output_hint.setText("回归任务使用单输出神经元，输出值即预测值。")
         self.continue_btn.setEnabled(has_data)
         self.add_layer_btn.setEnabled(len(config.hidden_layers) < MAX_HIDDEN_LAYERS)
+        self._update_size_card(size_stats, has_data and prepared is not None)
 
-    @staticmethod
-    def _parameter_count(input_dim: int, hidden: list[int], output_dim: int, batch_norm: bool) -> int:
-        total = 0
-        prev = input_dim
-        for width in hidden:
-            total += prev * width + width
-            if batch_norm:
-                total += 2 * width
-            prev = width
-        total += prev * output_dim + output_dim
-        return total
+    def _update_size_card(self, stats, ready: bool) -> None:
+        if not ready:
+            for value in self.size_labels.values():
+                value.setText("—")
+            self.size_hint.setText("选择数据后估算模型尺寸。")
+            return
+        cfg = self.state.training_config
+        batch = max(1, int(cfg.batch_size))
+        optimizer = str(cfg.optimizer).upper()
+        param_bytes = stats.fp32_bytes
+        activation_bytes = stats.activation_elements * 4
+        optimizer_states = {"ADAM": 2, "ADAMW": 2, "SGD": 1, "RMSPROP": 1}.get(
+            optimizer, 2
+        )
+        train_bytes = int(
+            (
+                param_bytes
+                + param_bytes
+                + param_bytes * optimizer_states
+                + activation_bytes * 2 * batch
+            )
+            * 1.15
+        )
+        self.size_labels["weights"].setText(f"{stats.weight_count:,}")
+        self.size_labels["params"].setText(f"{stats.parameter_count:,}")
+        self.size_labels["storage"].setText(
+            f"{_format_bytes(stats.fp32_bytes)} (FP32) · "
+            f"{_format_bytes(stats.fp16_bytes)} (FP16)"
+        )
+        self.size_labels["infer"].setText(
+            f"{_format_bytes(param_bytes + activation_bytes)} · batch 1"
+        )
+        self.size_labels["train"].setText(
+            f"{_format_bytes(train_bytes)} · batch {batch} · {optimizer}"
+        )
+        self.size_hint.setText(
+            f"按 FP32、batch {batch}、{optimizer} 估算；不含 CUDA 上下文与框架缓存。"
+        )
+
 
     # -- 隐藏层行 -----------------------------------------------------------
     def _clear_layer_rows(self) -> None:
@@ -432,3 +502,14 @@ def _format_params(value: int) -> str:
     if value >= 10_000:
         return f"{value / 1000:.1f}k"
     return f"{value:,}"
+
+
+def _format_bytes(value: int) -> str:
+    size = float(max(value, 0))
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            if unit == "B":
+                return f"{int(size)} B"
+            return f"{size:.2f} {unit}" if size < 10 else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} GB"

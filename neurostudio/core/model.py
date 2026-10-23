@@ -98,6 +98,43 @@ class ModelConfig:
         return " → ".join(str(n) for n in layers)
 
 
+@dataclass(frozen=True)
+class ModelSizeStats:
+    weight_count: int
+    bias_count: int
+    parameter_count: int
+    fp32_bytes: int
+    fp16_bytes: int
+    activation_elements: int
+
+
+def estimate_model_size(config: ModelConfig) -> ModelSizeStats:
+    """估算参数量、权重元素数与 FP32/FP16 存储尺寸（不含框架开销）。"""
+    config.normalized().validate()
+    weights = 0
+    biases = 0
+    previous = config.input_dim
+    for width in config.hidden_layers:
+        weights += previous * width
+        biases += width
+        if config.batch_norm:
+            weights += width
+            biases += width
+        previous = width
+    weights += previous * config.output_dim
+    biases += config.output_dim
+    parameters = weights + biases
+    activation_elements = config.input_dim + sum(config.hidden_layers) + config.output_dim
+    return ModelSizeStats(
+        weight_count=weights,
+        bias_count=biases,
+        parameter_count=parameters,
+        fp32_bytes=parameters * 4,
+        fp16_bytes=parameters * 2,
+        activation_elements=activation_elements,
+    )
+
+
 class MLP(nn.Module):
     """由 :class:`ModelConfig` 生成的顺序多层感知机。"""
 

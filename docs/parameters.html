@@ -67,6 +67,17 @@
 </ul>
 <p>可训练参数量的近似计算：每个 Linear 层有 <code>in×out + out</code> 个参数；启用 BatchNorm 时每层再增加 <code>2×out</code> 个参数。</p>
 
+<h3 id="model_size">模型尺寸估算</h3>
+<p>结构摘要下方的「模型尺寸估算」用于快速判断模型规模：</p>
+<ul>
+    <li><b>权重元素</b>：所有 Linear 层的 <code>in×out</code> 权重数量，加上 BatchNorm 的缩放参数 γ（每层宽度个）。</li>
+    <li><b>参数总数</b>：权重元素 + 所有偏置（Linear 的 out 个、BatchNorm 的 β）。</li>
+    <li><b>模型存储</b>：<code>参数总数 × 4 bytes</code>（FP32）或 <code>× 2 bytes</code>（FP16）。ZIP 中的 weights.pt 是 FP32 state_dict，JSON 元数据很小。</li>
+    <li><b>推理显存</b>：参数存储 + batch=1 的前向激活，约为 <code>参数×4 + Σ层宽×4</code>。</li>
+    <li><b>训练显存</b>：参数 + 梯度 + 优化器状态 + 当前 batch 的前向/反向激活（约前向激活的 2 倍）。Adam/AdamW 每个参数保留 2 份状态，SGD momentum 与 RMSprop 约 1 份；再乘约 1.15 的工作区系数。</li>
+</ul>
+<p>这些数值是模型张量的理论估算，不包含 CUDA 上下文、PyTorch 缓存、cuDNN workspace 与数据加载器的开销；实际显存通常更高。模型页会按当前训练设置的 batch size 与优化器显示估算值。</p>
+
 <h3 id="activation">激活函数</h3>
 <ul>
     <li><b>ReLU</b>：<code>f(x)=max(0,x)</code>。计算快、缓解梯度消失，是最常用的默认选择；负半轴梯度为 0。</li>

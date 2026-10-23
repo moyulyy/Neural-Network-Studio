@@ -66,7 +66,7 @@
 | 模块 | 能力 |
 | --- | --- |
 | **数据** | CSV / TSV / TXT / Excel；缺失值均值 / 中位数 / 众数填充或删除；数值标准化；类别特征 One-Hot / 序数编码；自动推断回归 / 分类任务 |
-| **网络** | 输入维度随特征编码自动计算；隐藏层 1–16 层、每层 1–8192 个神经元；输出维度按标签自动对齐；8 种激活函数、5 种初始化、Dropout、BatchNorm；实时结构图与参数量 |
+| **网络** | 输入维度随特征编码自动计算；隐藏层 1–16 层、每层 1–8192 个神经元；输出维度按标签自动对齐；8 种激活函数、5 种初始化、Dropout、BatchNorm；实时结构图、参数量、权重/存储/显存估算 |
 | **训练** | 后台线程；epochs、batch size、学习率、优化器、损失、类别权重、标签平滑、验证比例、学习率策略、权重衰减、梯度裁剪、早停、随机种子、设备；损失 / 指标 / 学习率三类曲线 |
 | **评估** | 独立测试集；分类：Accuracy、macro Precision / Recall / F1、ROC-AUC、MCC、Cohen's κ、Log loss、特异度、平衡准确率、混淆矩阵、逐类报告；回归：R²、RMSE、MAE、MAPE、MedAE、解释方差、平均偏差、预测散点 |
 | **模型包** | ZIP（`weights.pt` + `model.json`），保存结构、预处理、训练参数、曲线、最佳轮次与指标；兼容旧版 `.nfs` |
@@ -233,7 +233,7 @@ python tests/app/predict_app.py path/to/model.zip
 
 文档：[`docs/parameters.html`](docs/parameters.html)
 
-覆盖内容：激活函数、初始化、Dropout、BatchNorm、优化器、损失函数、类别权重、标签平滑、
+覆盖内容：激活函数、初始化、Dropout、BatchNorm、模型尺寸估算、优化器、损失函数、类别权重、标签平滑、
 学习率策略、权重衰减、梯度裁剪、早停、指标公式等。
 
 ## 架构
@@ -291,7 +291,7 @@ python -m pytest tests -q
 ```
 
 覆盖动态网络、数据预处理、指标、回归 / 分类训练、早停、类别权重、标签平滑、
-AUC / MCC / κ / Log loss、ZIP 模型包与旧版兼容。当前测试集：**22 passed**。
+AUC / MCC / κ / Log loss、ZIP 模型包与旧版兼容。当前测试集：**23 passed**。
 
 ## 常见问题
 

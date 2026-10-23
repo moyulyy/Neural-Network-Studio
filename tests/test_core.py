@@ -20,7 +20,7 @@ from neurostudio.core.data import (
     split_indices,
 )
 from neurostudio.core.metrics import classification_metrics, regression_metrics
-from neurostudio.core.model import ModelConfig, build_model
+from neurostudio.core.model import ModelConfig, build_model, estimate_model_size
 from neurostudio.core.persistence import (
     build_bundle,
     load_bundle,
@@ -71,6 +71,27 @@ def test_dynamic_architecture(hidden, output_dim, batch_norm, dropout):
     extra = ModelConfig.from_dict(config.to_dict())
     assert extra.hidden_layers == hidden
     assert extra.output_dim == output_dim
+
+
+def test_estimate_model_size():
+    stats = estimate_model_size(
+        ModelConfig(
+            input_dim=5,
+            hidden_layers=[7, 3],
+            output_dim=2,
+            batch_norm=True,
+        )
+    )
+    assert stats.weight_count == 72
+    assert stats.bias_count == 22
+    assert stats.parameter_count == 94
+    assert stats.fp32_bytes == 94 * 4
+    assert stats.fp16_bytes == 94 * 2
+    assert stats.activation_elements == 5 + 7 + 3 + 2
+    model = build_model(
+        ModelConfig(input_dim=5, hidden_layers=[7, 3], output_dim=2, batch_norm=True)
+    )
+    assert model.parameter_count == stats.parameter_count
 
 
 def test_model_rejects_empty_hidden_layers():
