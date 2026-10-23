@@ -1,0 +1,15 @@
+name: neurostudio
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - pandas>=2.2
+      - numpy>=1.26
+      - openpyxl>=3.1
+      - pytest>=8.0
+# PySide6 未被所有国内镜像收录，激活环境后从官方源安装：
+#   python -m pip install PySide6==6.8.3 --index-url https://pypi.org/simple
+# PyTorch 需要 CUDA 版本，请在激活环境后执行：
+#   python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121

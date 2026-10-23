@@ -1,0 +1,7 @@
+# 运行时依赖（PySide6 与 PyTorch 请按 README 单独安装）
+# PySide6 未被部分国内镜像收录，请从官方源安装：
+#   python -m pip install PySide6==6.8.3 --index-url https://pypi.org/simple
+pandas>=2.2
+numpy>=1.26
+openpyxl>=3.1
+pytest>=8.0

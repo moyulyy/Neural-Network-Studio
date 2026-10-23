@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>NeuroStudio 参数说明</title>
+<style>
+    body { margin: 18px 22px; line-height: 1.65; }
+    h1 { font-size: 24px; margin: 0 0 4px 0; }
+    h2 { font-size: 17px; margin: 26px 0 8px 0; padding-bottom: 5px; border-bottom: 1px solid; }
+    h3 { font-size: 14px; margin: 18px 0 4px 0; }
+    p, li { font-size: 13px; }
+    code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px; }
+    table { border-collapse: collapse; margin: 6px 0 12px 0; }
+    td, th { padding: 4px 12px 4px 0; border-bottom: 1px solid; font-size: 12px; text-align: left; vertical-align: top; }
+    .note { font-size: 12px; }
+    .toc a { margin-right: 12px; }
+</style>
+</head>
+<body>
+<h1 id="index">NeuroStudio 参数说明</h1>
+<p class="note">本页解释界面中各项参数的含义、算法与使用建议。点击参数旁的「!」可直接定位到对应条目。</p>
+<p class="toc">
+    <a href="#data">数据与任务</a>
+    <a href="#network">网络结构</a>
+    <a href="#training">训练参数</a>
+    <a href="#metrics">评价指标</a>
+</p>
+
+<h2 id="data">数据与任务</h2>
+
+<h3 id="task">任务类型（回归 / 分类）</h3>
+<p>任务类型决定输出层维度、损失函数和评价指标。</p>
+<ul>
+    <li><b>回归</b>：标签是连续数值，模型输出一个实数，使用 MSE / MAE / Huber 等损失，常用 R²、RMSE、MAE 评价。</li>
+    <li><b>分类</b>：标签是离散类别，输出维度等于类别数，使用交叉熵损失，常用准确率、精确率、召回率、F1、AUC 评价。</li>
+</ul>
+<p>应用会根据标签列自动推断任务，也可以手动切换。分类模型输出各类别的概率，预测类别为概率最大的那一类。</p>
+
+<h3 id="missing">缺失值处理</h3>
+<ul>
+    <li><b>均值填充</b>：用该数值特征在训练集上的均值填充缺失值。</li>
+    <li><b>中位数填充</b>：用中位数填充，对异常值更稳健。</li>
+    <li><b>众数填充</b>：用出现次数最多的值填充，数值与类别特征都可使用。</li>
+    <li><b>删除缺失行</b>：删除特征或标签缺失的样本。会减少样本量。</li>
+</ul>
+<p>填充统计量只在训练集上计算，并保存进模型包；测试集使用完全相同的统计量，避免数据泄漏。</p>
+
+<h3 id="categorical">类别特征编码</h3>
+<ul>
+    <li><b>One-Hot</b>：一个有 N 个类别的列展开为 N 个 0/1 神经元。适合无序类别，但类别很多时会显著增加输入维度。</li>
+    <li><b>序数编码</b>：把类别映射为整数 0..N−1，只占 1 个输入维度。适合天然有序的类别；对无序类别可能引入虚假的大小关系。</li>
+</ul>
+<p>编码字典在训练时固定，测试集中未出现过的类别在 One-Hot 下编码为全 0，在序数编码下为 −1。</p>
+
+<h3 id="scale">特征标准化</h3>
+<p>对数值特征做 z-score 标准化：</p>
+<p><code>z = (x − μ) / σ</code></p>
+<p>其中 μ、σ 为训练集上的均值和标准差（σ=0 时取 1）。标准化能让不同量纲的特征处于相近尺度，通常可以加快收敛、提高训练稳定性。类别编码列不参与标准化。</p>
+
+<h2 id="network">网络结构</h2>
+
+<h3 id="structure">输入层、隐藏层与输出层</h3>
+<ul>
+    <li><b>输入维度</b>：由所选特征与编码方式决定。数值特征 1 维；One-Hot 类别特征占类别数维；序数编码占 1 维。</li>
+    <li><b>隐藏层</b>：每层执行 <code>Linear → (BatchNorm) → 激活 → (Dropout)</code>。层数与每层宽度决定表达能力。</li>
+    <li><b>输出维度</b>：分类等于类别数，回归为 1。这样输出张量才能与交叉熵标签或回归目标严格对齐。</li>
+</ul>
+<p>可训练参数量的近似计算：每个 Linear 层有 <code>in×out + out</code> 个参数；启用 BatchNorm 时每层再增加 <code>2×out</code> 个参数。</p>
+
+<h3 id="activation">激活函数</h3>
+<ul>
+    <li><b>ReLU</b>：<code>f(x)=max(0,x)</code>。计算快、缓解梯度消失，是最常用的默认选择；负半轴梯度为 0。</li>
+    <li><b>LeakyReLU</b>：<code>f(x)=max(αx,x)</code>，默认 α=0.01，负半轴保留很小的梯度。</li>
+    <li><b>GELU</b>：<code>f(x)=x·Φ(x)</code>，Φ 为标准正态 CDF，曲线平滑，常用于 Transformer 类模型。</li>
+    <li><b>SiLU / Swish</b>：<code>f(x)=x·sigmoid(x)</code>，平滑且非单调。</li>
+    <li><b>Tanh</b>：输出 (−1,1)，零中心，但深层网络容易饱和。</li>
+    <li><b>Sigmoid</b>：输出 (0,1)，常用于二分类输出层；隐藏层中易饱和。</li>
+    <li><b>ELU</b>：负半轴为 <code>α(e^x−1)</code>，均值更接近 0。</li>
+    <li><b>SELU</b>：自归一化激活，配合特定初始化与正则化使用。</li>
+</ul>
+
+<h3 id="init">权重初始化</h3>
+<ul>
+    <li><b>Kaiming 均匀 / 正态</b>：按 fan_in 缩放，适合 ReLU 类激活。均匀版本在 <code>[-bound, bound]</code> 采样，正态版本标准差约 <code>sqrt(2/fan_in)</code>。</li>
+    <li><b>Xavier 均匀 / 正态</b>：兼顾 fan_in 与 fan_out，适合 Tanh / Sigmoid 等对称激活。</li>
+    <li><b>正态 (σ=0.02)</b>：小方差高斯初始化，常用于较浅网络。</li>
+</ul>
+<p>偏置项默认初始化为 0 附近的小均匀随机数。初始化只影响训练起点，不会改变网络结构。</p>
+
+<h3 id="dropout">Dropout</h3>
+<p>训练时以概率 p 随机将隐藏神经元输出置 0，并把保留的神经元按 <code>1/(1−p)</code> 放大；推理时关闭 Dropout。</p>
+<p>作用相当于对大量子网络做隐式集成，能抑制过拟合。数据量小、模型容量大时可尝试 0.1–0.5；数据量很大时通常不需要。</p>
+
+<h3 id="batch_norm">BatchNorm（批归一化）</h3>
+<p>对每个隐藏层的 mini-batch 激活做标准化，再学习缩放 γ 与偏移 β：</p>
+<p><code>y = γ · (x − μ_batch) / sqrt(σ_batch² + ε) + β</code></p>
+<p>它能让各层输入分布更稳定，允许更大的学习率。推理时使用训练阶段累计的 running mean / var。批大小过小时统计量不稳定；应用会自动跳过大小为 1 的批次。</p>
+
+<h2 id="training">训练参数</h2>
+
+<h3 id="epochs">训练轮数（Epochs）</h3>
+<p>完整遍历训练集一次称为一个 epoch。轮数太少会欠拟合，太多可能过拟合。配合早停与验证集使用更可靠。</p>
+
+<h3 id="batch_size">批大小（Batch Size）</h3>
+<p>每次参数更新使用的样本数。小批量噪声更大、泛化有时更好，但训练更慢；大批量梯度更稳定、吞吐更高，但可能占用更多显存，且泛化性能可能下降。</p>
+
+<h3 id="learning_rate">学习率（Learning Rate）</h3>
+<p>参数更新的步长。过大会震荡甚至发散，过小则收敛缓慢。常用起点：Adam 1e-3，SGD 1e-2 左右；配合学习率策略可进一步调整。</p>
+
+<h3 id="optimizer">优化器</h3>
+<ul>
+    <li><b>SGD（含 momentum）</b>：<code>v ← μv + g</code>，<code>θ ← θ − lr·v</code>。简单、泛化好，但需要调学习率。</li>
+    <li><b>Adam</b>：同时估计梯度一阶矩 m 与二阶矩 v，并做偏差修正：
+        <code>θ ← θ − lr·m̂ / (sqrt(v̂) + ε)</code>。对超参数不敏感，适合快速起步。</li>
+    <li><b>AdamW</b>：Adam + 解耦权重衰减，正则化更符合原始定义，常用于深度网络。</li>
+    <li><b>RMSprop</b>：按梯度平方的指数移动平均缩放学习率，适合非平稳目标。</li>
+</ul>
+
+<h3 id="loss">损失函数</h3>
+<ul>
+    <li><b>MSE</b>：<code>(1/n)Σ(y−ŷ)²</code>，对大误差敏感，回归默认选择。</li>
+    <li><b>MAE</b>：<code>(1/n)Σ|y−ŷ|</code>，对异常值更稳健。</li>
+    <li><b>Huber</b>：误差小于 δ 时用平方，大于 δ 时用线性，兼顾平滑与鲁棒性。</li>
+    <li><b>Smooth L1</b>：Huber 的平滑版本，常用于回归。</li>
+    <li><b>交叉熵（CrossEntropy）</b>：分类默认损失。<code>L = −Σ y_c log(p_c)</code>，输出层需给出 logits；应用内部自动做 softmax。</li>
+</ul>
+<p>类别权重与标签平滑只对分类交叉熵生效。</p>
+
+<h3 id="class_weight">类别权重（Class Weight）</h3>
+<p>当类别样本数不平衡时，可给少数类更高权重。选择「平衡」时：</p>
+<p><code>w_c = N / (K · N_c)</code></p>
+<p>其中 N 是训练样本总数，K 是出现的类别数，N_c 是类别 c 的样本数。权重传入交叉熵，使各类对总损失的贡献更均衡。</p>
+
+<h3 id="label_smoothing">标签平滑（Label Smoothing）</h3>
+<p>把硬标签 <code>onehot(c)</code> 替换为：</p>
+<p><code>target = (1−ε)·onehot(c) + ε/K</code></p>
+<p>ε 通常取 0.05–0.1。它可以抑制模型过度自信、改善校准与泛化，但会略微降低训练集置信度。</p>
+
+<h3 id="val_ratio">验证集比例</h3>
+<p>从训练数据中留出用于监控的比例（0–0.5）。分类任务按类别分层抽样，保证每类在验证集中都有样本。验证损失用于早停和恢复最佳权重；0 表示不划分验证集。</p>
+
+<h3 id="scheduler">学习率策略</h3>
+<ul>
+    <li><b>固定</b>：整个训练使用同一学习率。</li>
+    <li><b>余弦退火</b>：<code>lr_t = lr_min + 0.5(lr_max−lr_min)(1+cos(πt/T))</code>，前期大、后期小，收敛平滑。</li>
+    <li><b>阶梯衰减</b>：每隔固定轮数乘以 0.5，简单直接。</li>
+</ul>
+
+<h3 id="weight_decay">权重衰减（L2 正则）</h3>
+<p>在损失中加入 <code>(λ/2)||w||²</code>，抑制权重过大。AdamW 使用解耦衰减。常用范围 0–1e-2；过大会导致欠拟合。</p>
+
+<h3 id="grad_clip">梯度裁剪</h3>
+<p>当梯度的全局范数超过阈值时按比例缩小：<code>g ← g · clip/||g||</code>。能抑制梯度爆炸，RNN 与深层网络常用；表格 MLP 通常可以设为 0 关闭。</p>
+
+<h3 id="early_stopping">早停（Early Stopping）</h3>
+<p>若验证损失连续 N 个 epoch 没有改善，则提前结束训练，并恢复验证损失最低的那一轮权重。N=0 表示关闭。它能节省时间并降低过拟合。</p>
+
+<h3 id="seed">随机种子</h3>
+<p>控制权重初始化、数据打乱与 Dropout 等随机过程。相同种子、相同环境与设备下结果应可复现；CUDA 的某些算子仍可能存在非确定性。</p>
+
+<h3 id="device">计算设备</h3>
+<p><b>自动</b>优先使用 CUDA，否则 CPU；也可以强制选择。CPU 适合小模型与调试，GPU 适合较大批量与深层网络。</p>
+
+<h2 id="metrics">评价指标</h2>
+
+<h3 id="r2">R²（决定系数）</h3>
+<p><code>R² = 1 − Σ(y−ŷ)² / Σ(y−ȳ)²</code>。越接近 1 越好，0 表示与直接预测均值相当，负值表示比均值预测更差。</p>
+
+<h3 id="rmse">RMSE（均方根误差）</h3>
+<p><code>sqrt(mean((y−ŷ)²))</code>，与目标同量纲，对大误差敏感。</p>
+
+<h3 id="mae">MAE（平均绝对误差）</h3>
+<p><code>mean(|y−ŷ|)</code>，直观且对异常值不如 RMSE 敏感。</p>
+
+<h3 id="mape">MAPE（平均绝对百分比误差）</h3>
+<p><code>mean(|y−ŷ| / |y|) × 100%</code>。便于跨量纲比较，但真实值接近 0 时会不稳定，应用会忽略这些样本。</p>
+
+<h3 id="accuracy">准确率（Accuracy）</h3>
+<p>预测正确的样本比例。类别不平衡时可能产生误导，建议同时查看精确率、召回率、F1 与 MCC。</p>
+
+<h3 id="precision">精确率（Precision）</h3>
+<p>对每个类别：<code>TP / (TP + FP)</code>，表示预测为该类的样本中真正属于该类的比例。应用展示 macro 平均，即对各类取平均。</p>
+
+<h3 id="recall">召回率（Recall）</h3>
+<p>对每个类别：<code>TP / (TP + FN)</code>，表示该类真实样本被找出的比例。macro 召回率也称为平衡准确率。</p>
+
+<h3 id="f1">F1 分数</h3>
+<p><code>2·Precision·Recall / (Precision + Recall)</code>，精确率与召回率的调和平均。应用展示 macro F1。</p>
+
+<h3 id="specificity">特异度（Specificity）</h3>
+<p>对每个类别：<code>TN / (TN + FP)</code>，表示其他类别被正确排除的比例。应用展示 macro 特异度。</p>
+
+<h3 id="auc">ROC-AUC</h3>
+<p>ROC 曲线下面积，衡量模型把正类排在负类前面的能力。二分类直接计算；多分类使用 one-vs-rest 后取宏平均。0.5 相当于随机，1.0 为完美排序。它不依赖具体分类阈值。</p>
+
+<h3 id="mcc">MCC（Matthews 相关系数）</h3>
+<p>综合混淆矩阵四个象限的指标，范围 [−1,1]。多分类使用混淆矩阵推广形式。类别不平衡时比准确率更可靠；0 表示随机，1 表示完美。</p>
+
+<h3 id="kappa">Cohen's κ</h3>
+<p>衡量预测与真实标签的一致性，并扣除随机一致的概率：</p>
+<p><code>κ = (p_o − p_e) / (1 − p_e)</code></p>
+<p>其中 p_o 为观察一致率，p_e 为随机期望一致率。0 左右表示与随机相当，1 为完全一致。</p>
+
+<h3 id="log_loss">Log Loss（对数损失）</h3>
+<p>分类概率的交叉熵：<code>−mean(log p_true)</code>。它同时惩罚错误类别和过度自信，越小越好。需要模型输出概率。</p>
+
+<p class="note">提示：分类指标中的 macro 平均会先对每个出现的类别计算指标，再取算术平均。混淆矩阵的行是真实类别、列是预测类别。</p>
+</body>
+</html>
